@@ -27,6 +27,7 @@ var (
 
 func ParseBinlogd(in *Binlog2sqlStruct) {
 	//init databaseConnect
+
 	if in.PosPoint != 0 && in.StartTime != "" {
 		in.PosPoint = 0
 		//println("pospoint change to 0:",in.PosPoint)
@@ -39,13 +40,16 @@ func ParseBinlogd(in *Binlog2sqlStruct) {
 	//fmt.Println(cmdString)
 	cmdString := "show master logs;"
 	in.MysqlCMD(cmdString)
-	go in.reverseEvent()
+	ctx, cancel := context.WithCancel(context.Background())
+	go in.reverseEvent(ctx, cancel)
 	println("启动goroutine")
 	streamer := in.parseBinlog()
 	for {
-		ev, err := streamer.GetEvent(context.Background())
+		ev, err := streamer.GetEvent(ctx)
+		//kazhu
 		if err != nil {
-			println("err", err)
+			println("err", err.Error())
+			os.Exit(1)
 		}
 		r, w, _ := os.Pipe()
 		ev.Dump(w)
@@ -54,10 +58,9 @@ func ParseBinlogd(in *Binlog2sqlStruct) {
 		strOutput := string(output)
 		transferEvent(strOutput)
 		if returnFlag == true {
-			os.Exit(1)
+			cancel()
 		}
 	}
-
 }
 func (bin *Binlog2sqlStruct) MysqlConnect() *sqlx.DB {
 	dsn := fmt.Sprintf("%s:%s@%s(%s:%d)/%s?parseTime=true&parseTime=true&timeout=5s",
@@ -142,7 +145,7 @@ func (bin *Binlog2sqlStruct) parseBinlog() *replication.BinlogStreamer {
 	return streamer
 }
 
-func (bin *Binlog2sqlStruct) reverseEvent() {
+func (bin *Binlog2sqlStruct) reverseEvent(ctx context.Context, cancelFunc context.CancelFunc) {
 	for {
 		select {
 		case v, _ := <-tempChan:
@@ -160,10 +163,12 @@ func (bin *Binlog2sqlStruct) reverseEvent() {
 			}
 			bin.StopTime = strings.Replace(bin.StopTime, " ", "", -1)
 			//fmt.Println("dateInfo[temppos+5:]",bin.StopTime,dateInfo[temppos+5:])
-			if strings.Replace(bin.StopTime, " ", "", -1) < dateInfo[temppos+5:] {
+			if strings.Replace(bin.StopTime, " ", "", -1) < dateInfo[temppos+5:] && bin.GenerateOSFile {
 				//抛弃掉不用的event
-				returnFlag = true
 				//os.Exit(1);
+				cancelFunc()
+				//close(tempChan)
+				returnFlag = true
 				continue
 			}
 			//println("dateaad",v,dateInfo)
@@ -184,10 +189,8 @@ func (bin *Binlog2sqlStruct) reverseEvent() {
 				//println("insert",eventFlag)
 				insertSqlParse(bin, v, schemaName, tableName, dateInfo)
 			}
-		default:
-			{
-			}
 		}
+
 	}
 }
 
