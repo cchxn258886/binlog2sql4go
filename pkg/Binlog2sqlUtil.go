@@ -46,7 +46,6 @@ func ParseBinlogd(in *Binlog2sqlStruct) {
 	streamer := in.parseBinlog()
 	for {
 		ev, err := streamer.GetEvent(ctx)
-		//kazhu
 		if err != nil {
 			println("err", err.Error())
 			os.Exit(1)
@@ -57,9 +56,9 @@ func ParseBinlogd(in *Binlog2sqlStruct) {
 		output, _ := ioutil.ReadAll(r)
 		strOutput := string(output)
 		transferEvent(strOutput)
-		if returnFlag == true {
-			cancel()
-		}
+		//if returnFlag == true {
+		//	//cancel()
+		//}
 	}
 }
 func (bin *Binlog2sqlStruct) MysqlConnect() *sqlx.DB {
@@ -168,7 +167,7 @@ func (bin *Binlog2sqlStruct) reverseEvent(ctx context.Context, cancelFunc contex
 				//os.Exit(1);
 				cancelFunc()
 				//close(tempChan)
-				returnFlag = true
+				//returnFlag = true
 				continue
 			}
 			//println("dateaad",v,dateInfo)
