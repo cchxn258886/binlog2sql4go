@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ var (
 	tempChan   = make(chan string, 10)
 	schemaName string
 	tableName  string
+	returnFlag bool
 )
 
 func ParseBinlogd(in *Binlog2sqlStruct) {
@@ -51,6 +53,9 @@ func ParseBinlogd(in *Binlog2sqlStruct) {
 		output, _ := ioutil.ReadAll(r)
 		strOutput := string(output)
 		transferEvent(strOutput)
+		if returnFlag == true {
+			os.Exit(1)
+		}
 	}
 
 }
@@ -137,9 +142,8 @@ func (bin *Binlog2sqlStruct) parseBinlog() *replication.BinlogStreamer {
 	return streamer
 }
 
-
 func (bin *Binlog2sqlStruct) reverseEvent() {
-	for ; ; {
+	for {
 		select {
 		case v, _ := <-tempChan:
 			//这里发送的就是一节一节的string
@@ -155,8 +159,11 @@ func (bin *Binlog2sqlStruct) reverseEvent() {
 				continue
 			}
 			bin.StopTime = strings.Replace(bin.StopTime, " ", "", -1)
+			//fmt.Println("dateInfo[temppos+5:]",bin.StopTime,dateInfo[temppos+5:])
 			if strings.Replace(bin.StopTime, " ", "", -1) < dateInfo[temppos+5:] {
 				//抛弃掉不用的event
+				returnFlag = true
+				//os.Exit(1);
 				continue
 			}
 			//println("dateaad",v,dateInfo)
@@ -167,15 +174,15 @@ func (bin *Binlog2sqlStruct) reverseEvent() {
 			}
 			if strings.Contains(eventFlag, "DeleteRows") {
 				//TODO delete reverse delete ----> insert
-				deleteSqlParse(bin, v, schemaName, tableName,dateInfo)
+				deleteSqlParse(bin, v, schemaName, tableName, dateInfo)
 			} else if strings.Contains(eventFlag, "UpdateRows") {
 				//TODO delete reverse
 				//println("update",eventFlag)
-				updateSqlParse(bin, v, schemaName, tableName,dateInfo)
+				updateSqlParse(bin, v, schemaName, tableName, dateInfo)
 			} else if strings.Contains(eventFlag, "WriteRows") {
 				//TODO delete reverse insert --> delete
 				//println("insert",eventFlag)
-				insertSqlParse(bin, v, schemaName, tableName,dateInfo)
+				insertSqlParse(bin, v, schemaName, tableName, dateInfo)
 			}
 		default:
 			{
@@ -202,11 +209,6 @@ func tableMetaDataParse(bin *Binlog2sqlStruct, inStr string) (string, string) {
 				//println("tableName:",tableName)
 			}
 		}
-		/*		if strings.Contains(v,"Data:"){
-				tempPos := strings.Index(v,":")
-				dataFlag := v[tempPos+1:]
-				bin.StartTime
-			}*/
 	}
 	return schemaName, tableName
 }
@@ -223,7 +225,7 @@ func (bin *Binlog2sqlStruct) getMetaTableInfoFromDatabase(schemaName, tableName 
 	return information
 }
 
-func deleteSqlParse(bin *Binlog2sqlStruct, inStr, schemaName, tableName,dateInfo string) {
+func deleteSqlParse(bin *Binlog2sqlStruct, inStr, schemaName, tableName, dateInfo string) {
 	var build strings.Builder
 	buildBaseString := fmt.Sprintf("insert into %s.%s(", schemaName, tableName)
 	build.WriteString(buildBaseString)
@@ -233,14 +235,14 @@ func deleteSqlParse(bin *Binlog2sqlStruct, inStr, schemaName, tableName,dateInfo
 	inStr = inStr[sqlEventsValuesPos+2:]
 	valueSlice := strings.Split(inStr, "\n")
 	for _, v := range valueSlice {
-		if len(v) == 0 || strings.EqualFold(v,"--"){
+		if len(v) == 0 || strings.EqualFold(v, "--") {
 			continue
 		}
 		valueIndexPos := strings.Index(v, ":")
 		mapKey, err := strconv.Atoi(v[0:valueIndexPos])
 		if err != nil {
-			println("panic sql",v,valueIndexPos)
-			println("errrrr,",err.Error())
+			println("panic sql", v, valueIndexPos)
+			println("errrrr,", err.Error())
 			panic("atoi fail")
 		}
 		valueMap[mapKey] = v[valueIndexPos+1:]
@@ -270,14 +272,19 @@ func deleteSqlParse(bin *Binlog2sqlStruct, inStr, schemaName, tableName,dateInfo
 	}
 	build.WriteString(");")
 	var debugString = build.String()
-	if strings.Contains(debugString,"<nil>"){
+	if strings.Contains(debugString, "<nil>") {
 		debugString = nilStringDeal(debugString)
 	}
-	fmt.Println("build string:", dateInfo,build.String())
+	if bin.GenerateOSFile {
+		rootDir, _ := os.Getwd()
+		_ = path.Join(rootDir, "logs", "binlog2sql4go.log")
+		//os.OpenFile(pathString,os.O_APPEND|os.O_CREATE|os.O_WRONLY,0644)
+	}
+	fmt.Println("build string:", dateInfo, build.String())
 }
 
 //TODO update sql reverse
-func updateSqlParse(bin *Binlog2sqlStruct, inStr, schemaName, tableName,dateInfo string) {
+func updateSqlParse(bin *Binlog2sqlStruct, inStr, schemaName, tableName, dateInfo string) {
 	var build strings.Builder
 	buildBaseString := fmt.Sprintf("update %s.%s set ", schemaName, tableName)
 	build.WriteString(buildBaseString)
@@ -340,15 +347,18 @@ func updateSqlParse(bin *Binlog2sqlStruct, inStr, schemaName, tableName,dateInfo
 	}
 	build.WriteString(";")
 	var debugString = build.String()
-	if strings.Contains(debugString,"<nil>"){
+	if strings.Contains(debugString, "<nil>") {
 		debugString = nilStringDeal(debugString)
 	}
-	fmt.Println("build string:", dateInfo,build.String())
+	if bin.GenerateOSFile {
+
+	}
+	fmt.Println("build string:", dateInfo, build.String())
 }
 
-func insertSqlParse(bin *Binlog2sqlStruct, inStr, schemaName, tableName,dateInfo string) {
+func insertSqlParse(bin *Binlog2sqlStruct, inStr, schemaName, tableName, dateInfo string) {
 	var build strings.Builder
-	var andCountNum=0;
+	var andCountNum = 0
 	//delete from schemaname.tablename where column=x,column=y;
 	buildBaseString := fmt.Sprintf("delete from %s.%s where ", schemaName, tableName)
 	build.WriteString(buildBaseString)
@@ -358,7 +368,7 @@ func insertSqlParse(bin *Binlog2sqlStruct, inStr, schemaName, tableName,dateInfo
 	inStr = inStr[sqlEventsValuesPos+2:]
 	valueSlice := strings.Split(inStr, "\n")
 	for _, v := range valueSlice {
-		if len(v) == 0 || strings.EqualFold(v,"--"){
+		if len(v) == 0 || strings.EqualFold(v, "--") {
 			continue
 		}
 		valueIndexPos := strings.Index(v, ":")
@@ -367,8 +377,8 @@ func insertSqlParse(bin *Binlog2sqlStruct, inStr, schemaName, tableName,dateInfo
 			panic("atoi fail")
 		}
 		//if strings.EqualFold(v[valueIndexPos+1:],"\"\"") || v[valueIndexPos+1:]=="<nil>"{
-		if strings.EqualFold(v[valueIndexPos+1:],"\"\"") {
-			continue;
+		if strings.EqualFold(v[valueIndexPos+1:], "\"\"") {
+			continue
 		}
 		valueMap[mapKey] = v[valueIndexPos+1:]
 	}
@@ -378,34 +388,37 @@ func insertSqlParse(bin *Binlog2sqlStruct, inStr, schemaName, tableName,dateInfo
 	//delete from schemaname.tablename where column=x,column=y;
 	for k, v := range information {
 		if k == len(information)-1 {
-			columnValue,ok := valueMap[k];
-			if !ok{
+			columnValue, ok := valueMap[k]
+			if !ok {
 				build.WriteString(";")
-			}else {
+			} else {
 				build.WriteString(v.ColumnName)
 				build.WriteString("=")
 				build.WriteString(columnValue)
 				build.WriteString(";")
-				break;
+				break
 			}
 		}
-		columnValue,ok:= valueMap[k]
-		if !ok{
-			break;
+		columnValue, ok := valueMap[k]
+		if !ok {
+			break
 		}
 		build.WriteString(v.ColumnName)
 		build.WriteString("=")
 		build.WriteString(columnValue)
-		if andCountNum < len(valueMap)-1{
+		if andCountNum < len(valueMap)-1 {
 			build.WriteString(" and ")
-			andCountNum += 1;
+			andCountNum += 1
 		}
 	}
 	var debugString = build.String()
-	if strings.Contains(debugString,"<nil>"){
+	if strings.Contains(debugString, "<nil>") {
 		debugString = nilStringDeal(debugString)
 	}
-	fmt.Println("build string:", dateInfo,debugString)
+	if bin.GenerateOSFile {
+
+	}
+	fmt.Println("build string:", dateInfo, debugString)
 }
 
 func transferEvent(inString string) {
@@ -414,10 +427,14 @@ func transferEvent(inString string) {
 	if strings.Contains(inString, "RowsEventV2") || strings.Contains(inString, "TableMapEvent") {
 		tempChan <- inString
 	}
+	//returnFlag = true;
 }
 
-func nilStringDeal(inStr string) string{
-	var resultString string;
-	resultString = strings.Replace(inStr, "<nil>", "null", -1);
-	return resultString;
+func nilStringDeal(inStr string) string {
+	var resultString string
+	resultString = strings.Replace(inStr, "<nil>", "null", -1)
+	return resultString
+}
+func writeOSFile(inStr string) {
+
 }
