@@ -1,7 +1,7 @@
 ## 说明
-go编写 基于binlog event解析出执行sql。使用channel解耦。
+go编写 基于binlog event解析出*反向*执行sql。
 binlog2sql 在我本地解析500M binlog 无法使用。
-
+mysql5.* 和8.0.* 均做了适配。
 >使用方式：
 - 1.可以直接源码运行。
 - 2.也可以编译成二进制文件
