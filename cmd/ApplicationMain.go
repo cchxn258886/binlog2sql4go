@@ -48,7 +48,7 @@ func main() {
 				ip,username,password,port,startTime,stopTime,fileName,posPoint,databaseName}*/
 	//mysql.Position{Name: "on.000005", Pos: 1193})
 	var binlog2sql = pkg.Binlog2sqlStruct{
-		"172.17.1.112", "test", "test",
+		"0.0.0.0", "test", "test",
 		3306, "2021-02-23 14:42:00", "2021-02-2314:47:43", "on.000005", 0,
 		"information_schema", true}
 	//var binlog2sql = pkg.Binlog2sqlStruct{
