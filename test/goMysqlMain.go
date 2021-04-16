@@ -18,7 +18,7 @@ var (
 	tableName  string
 )
 
-func main() {
+func maint() {
 	tempChan = make(chan string, 10)
 	//go test1();
 	//cfg := replication.BinlogSyncerConfig {
